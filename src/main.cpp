@@ -1,6 +1,14 @@
 #include <Arduino.h>
 #include <EEPROM.h>
-#include <functional>
+#include "simple-circular.h"
+
+//build_flags = -D USB_SERIAL_HID
+
+extern "C"{
+  int _getpid(){ return -1;}
+  int _kill(int pid, int sig){ return -1; }
+  int _write(){return -1;}
+}
 
 #define RFID_SERIAL Serial2
 
@@ -24,44 +32,12 @@ enum MODES {
 const byte SOT = 0x02;
 const byte EOT = 0x03;
 
-template< typename T, unsigned int SIZE >
-class SimpleCircular {
-  SimpleCircular() : mask(2^SIZE-1), head(0), tail(0) {}
-  bool empty() {return head == tail;}
-  void push(const T& val) {
-    elem[head] = val;
-    inc(head);
-    if(empty()) {
-      inc(tail);
-    }
-  }
-  void pop() {
-    if(!empty()) {
-      inc(tail);
-    }
-  }
-  T last() { return elem[tail]; }
-  void foreach( std::function<void (T)> func ) {
-    while( !empty() ) {
-      func(last());
-      inc(tail);
-    }
-  }
-protected:
-  void inc(const unsigned int& ptr) {
-    ptr = (ptr + 1) & mask;
-  }
-protected:
-  unsigned int mask;
-  unsigned int head;
-  unsigned int tail;
-  T elem[2^SIZE];
-};
+SimpleCircular<unsigned int, 12> times;
 
-unsigned int times[4096];
-unsigned int first = 0;
-unsigned int last = 0;
-unsigned int TMASK = 0xFFF;
+//unsigned int times[4096];
+//unsigned int first = 0;
+//unsigned int last = 0;
+//unsigned int TMASK = 0xFFF;
 unsigned long lastChange;
 unsigned long lastTag = 0;
 unsigned long lightLED = 0;
@@ -114,10 +90,10 @@ void sendCtrlAltDel() {
 void pinChanged() {
   unsigned int now = micros();
   unsigned int delta = now - lastChange;
-  times[first] = delta * 2 + digitalRead(rfidPin);
+  times.push( delta * 2 + digitalRead(rfidPin) );
   lastDelta = delta;
   lastChange = now;
-  first = (first + 1) & TMASK;
+  //first = (first + 1) & TMASK;
   if( 1000 < delta && delta < 1800 ) {
     preamble = 29;
   }
@@ -198,6 +174,14 @@ void processCmd()
     }
   }
   else if( cmd == "dump" || cmd == "." ) {
+    times.foreach(
+      [](unsigned int t) {
+        Serial.print(t / 2);
+        Serial.print(":");
+        Serial.println(t & 0x01);
+      }
+    );
+    /*
     while( last != first ) {
       Serial.print(times[last] / 2);
       Serial.print(":");
@@ -205,7 +189,9 @@ void processCmd()
       //Serial.println(times[last]);
       last = (last + 1) & TMASK;
     }
+    */
   }
+  /*
   else if( cmd == "dump8" || cmd == ".." ) {
     while( last != first ) {
       //Serial.print(times[last] / 16);
@@ -215,6 +201,7 @@ void processCmd()
       last = (last + 1) & TMASK;
     }
   }
+  */
   else if( cmd == "tag" ) {
     Serial.print("TAG: ");
     for( int i = 0; i < TAGLEN; ++i ) {
