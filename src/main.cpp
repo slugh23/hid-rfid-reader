@@ -34,10 +34,6 @@ const byte EOT = 0x03;
 
 SimpleCircular<unsigned int, 12> times;
 
-//unsigned int times[4096];
-//unsigned int first = 0;
-//unsigned int last = 0;
-//unsigned int TMASK = 0xFFF;
 unsigned long lastChange;
 unsigned long lastTag = 0;
 unsigned long lightLED = 0;
@@ -181,27 +177,16 @@ void processCmd()
         Serial.println(t & 0x01);
       }
     );
-    /*
-    while( last != first ) {
-      Serial.print(times[last] / 2);
-      Serial.print(":");
-      Serial.println(times[last] & 0x01);
-      //Serial.println(times[last]);
-      last = (last + 1) & TMASK;
-    }
-    */
   }
-  /*
   else if( cmd == "dump8" || cmd == ".." ) {
-    while( last != first ) {
-      //Serial.print(times[last] / 16);
-      //Serial.print(":");
-      //Serial.println(times[last] & 0x01);
-      Serial.println(times[last] / 8);
-      last = (last + 1) & TMASK;
-    }
+    times.foreach(
+      [](unsigned int t) {
+        Serial.print(t / 16);
+        Serial.print(":");
+        Serial.println(t & 0x01);
+      }
+    );
   }
-  */
   else if( cmd == "tag" ) {
     Serial.print("TAG: ");
     for( int i = 0; i < TAGLEN; ++i ) {
@@ -226,18 +211,23 @@ void processCmd()
 }
 
 void setup() {
+  pinMode(rfidPin, INPUT);
   pinMode(ledPin, OUTPUT);
   pinMode(gatePin, OUTPUT);
-  pinMode(rfidPin, INPUT);
-  lastChange = micros();
+
+  digitalWrite(gatePin, HIGH);
+  //t.begin(timerGate, 90000);
+
   Serial.begin( 115200 );
   RFID_SERIAL.begin( 9600 );
+
+  lastChange = micros();
   attachInterrupt( digitalPinToInterrupt(rfidPin), pinChanged, CHANGE );
-  lightLED = millis() + 1000;
+
   EEPROM.get(addrPass, svdPass);
   EEPROM.get(addrTag, tag);
-  //t.begin(timerGate, 90000);
-  digitalWrite(gatePin, HIGH);
+
+  lightLED = millis() + 1000;
 }
 
 void loop() {

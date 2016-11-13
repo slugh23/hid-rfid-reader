@@ -4,10 +4,10 @@
 #include <stddef.h>
 #include <functional>
 
-template< typename T, unsigned int SIZE >
+template< typename T, byte BUFF_POWER >
 class SimpleCircular {
 public:
-  SimpleCircular() : mask((2^SIZE)-1), head(0), tail(0) {}
+  SimpleCircular() : size(1 << BUFF_POWER), mask(size-1), head(0), tail(0) {}
   bool empty() {return head == tail;}
   void push(const T& val) {
     elem[head] = val;
@@ -28,15 +28,28 @@ public:
       inc(tail);
     }
   }
+  /*
+  void debug() {
+    Serial.print("Size: ");
+    Serial.println(size);
+    Serial.print("Mask: ");
+    Serial.println(mask);
+    Serial.print("Mead: ");
+    Serial.println(head);
+    Serial.print("Tail: ");
+    Serial.println(tail);
+  }
+  */
 protected:
   void inc(unsigned int& ptr) {
     ptr = (ptr + 1) & mask;
   }
 protected:
-  unsigned int mask;
+  const unsigned int size;
+  const unsigned int mask;
   unsigned int head;
   unsigned int tail;
-  T elem[2^SIZE];
+  T elem[1 << BUFF_POWER];
 };
 
 #endif
