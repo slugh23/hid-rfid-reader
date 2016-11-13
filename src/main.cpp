@@ -64,6 +64,34 @@ bool ctrlAltDel = false;
 
 IntervalTimer t;
 
+void pinChanged() {
+  unsigned int now = micros();
+  unsigned int delta = now - lastChange;
+  times.push( delta * 2 + digitalRead(rfidPin) );
+  lastDelta = delta;
+  lastChange = now;
+  //first = (first + 1) & TMASK;
+  if( 1000 < delta && delta < 1800 ) {
+    preamble = 29;
+  }
+  if( 10 < delta && delta < 80 ) {
+    if( preamble ) {
+      --preamble;
+      if( preamble == 0 ) {
+        unsigned int delta2 = now - lastBreak;
+        if( 30000 < delta2 && delta2 < 45000 ) {
+          lightLED = millis() + 100;
+        }
+        lastBreak = now;
+      }
+    }
+  }
+}
+
+void timerGate(void) {
+  digitalWrite(gatePin, !digitalRead(gatePin));
+}
+
 void sendCtrlAltDel() {
   // press and hold CTRL
   Keyboard.set_modifier(MODIFIERKEY_CTRL);
@@ -81,30 +109,6 @@ void sendCtrlAltDel() {
   Keyboard.set_modifier(0);
   Keyboard.set_key1(0);
   Keyboard.send_now();
-}
-
-void pinChanged() {
-  unsigned int now = micros();
-  unsigned int delta = now - lastChange;
-  times.push( delta * 2 + digitalRead(rfidPin) );
-  lastDelta = delta;
-  lastChange = now;
-  //first = (first + 1) & TMASK;
-  if( 1000 < delta && delta < 1800 ) {
-    preamble = 29;
-  }
-  if( 10 < delta && delta < 80 ) {
-    if( preamble ) {
-      --preamble;
-      if( preamble == 0 ) {
-        lightLED = millis() + 100;
-      }
-    }
-  }
-}
-
-void timerGate(void) {
-  digitalWrite(gatePin, !digitalRead(gatePin));
 }
 
 bool processSerial( char newChar )
