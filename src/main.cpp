@@ -4,12 +4,6 @@
 
 //build_flags = -D USB_SERIAL_HID
 
-extern "C"{
-  int _getpid(){ return -1;}
-  int _kill(int pid, int sig){ return -1; }
-  int _write(){return -1;}
-}
-
 #define RFID_SERIAL Serial2
 
 struct Passwd {
@@ -68,9 +62,9 @@ void pinChanged() {
   unsigned int now = micros();
   unsigned int delta = now - lastChange;
   times.push( delta * 2 + digitalRead(rfidPin) );
-  lastDelta = delta;
+
   lastChange = now;
-  //first = (first + 1) & TMASK;
+
   if( 1000 < delta && delta < 1800 ) {
     preamble = 29;
   }
