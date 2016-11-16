@@ -4,6 +4,101 @@
 
 //build_flags = -D USB_SERIAL_HID
 
+class Tag
+{
+public:
+  Tag() { clear(); }
+  void clear() {
+    count_ = 0;
+    tag_ = 0;
+  }
+  bool is_valid() {
+    // TODO: Add parity test
+    return count_ == 90;
+  }
+  bool push(bool bit) {
+    if( count_ & 0x01 )
+    {
+      if( bit == lastBit_ ) {
+        return false;
+      }
+      tag_ = (tag_ << 1) + lastBit_;
+    }
+    else {
+      lastBit_ = bit;
+    }
+    ++count_;
+  }
+
+  unsigned int value() {
+    return (tag_ & 0x1FFFFFE) / 2;
+  }
+
+protected:
+  unsigned int count_;
+  bool lastBit_;
+  uint64_t tag_;
+};
+
+unsigned long lightLED = 0;
+
+class TagParser
+{
+public:
+  TagParser(Tag& tag) : save_(tag) {}
+
+  void change( unsigned int now )
+  {
+    unsigned int delta = now - lastChange_;
+    lastChange_ = now;
+
+    if( delta < 100 ) {
+      ++count_;
+    }
+    else
+    {
+      if( count_ < 15 ) {
+        // push 1
+        tag_.push(1);
+      }
+      else if( count_ < 25 ) {
+        // push 1 1
+        tag_.push(1);
+        tag_.push(1);
+      }
+
+      if( delta < 600 ) {
+        // push 0
+        tag_.push(0);
+      }
+      else if( delta < 1000 ) {
+        // push 0 0
+        tag_.push(0);
+        tag_.push(0);
+      }
+      else if( delta < 1300 ) {
+        //  clear tag
+        save_ = tag_;
+        tag_.clear();
+      }
+      else if( delta < 1750 ) {
+        //  clear tag
+        tag_.push(0);
+        save_ = tag_;
+        tag_.clear();
+      }
+      // ignore it...
+      count_ = 0;
+    }
+  }
+
+protected:
+  unsigned int lastChange_;
+  int count_;
+  Tag tag_;
+  Tag& save_;
+};
+
 #define RFID_SERIAL Serial2
 
 struct Passwd {
@@ -28,9 +123,12 @@ const byte EOT = 0x03;
 
 SimpleCircular<unsigned int, 12> times;
 
+Tag tag1;
+Tag tag2;
+TagParser parser(tag1);
+
 unsigned long lastChange;
 unsigned long lastTag = 0;
-unsigned long lightLED = 0;
 int readLen = 0;
 
 unsigned lastDelta = 0;
@@ -64,22 +162,7 @@ void pinChanged() {
   times.push( delta * 2 + digitalRead(rfidPin) );
 
   lastChange = now;
-
-  if( 1000 < delta && delta < 1800 ) {
-    preamble = 29;
-  }
-  if( 10 < delta && delta < 80 ) {
-    if( preamble ) {
-      --preamble;
-      if( preamble == 0 ) {
-        unsigned int delta2 = now - lastBreak;
-        if( 30000 < delta2 && delta2 < 45000 ) {
-          lightLED = millis() + 100;
-        }
-        lastBreak = now;
-      }
-    }
-  }
+  parser.change(now);
 }
 
 void timerGate(void) {
@@ -96,7 +179,7 @@ void sendCtrlAltDel() {
   Keyboard.send_now();
 
   // press DELETE, while CLTR and ALT still held
-  Keyboard.set_key1(KEY_DELETE);
+  Keyboard.set_key1((uint8_t)KEY_DELETE);
   Keyboard.send_now();
 
   // release all the keys at the same instant
@@ -214,7 +297,7 @@ void setup() {
   pinMode(gatePin, OUTPUT);
 
   digitalWrite(gatePin, HIGH);
-  //t.begin(timerGate, 90000);
+  //t.begin(timerGate, 250000);
 
   Serial.begin( 115200 );
   RFID_SERIAL.begin( 9600 );
@@ -305,6 +388,13 @@ void loop() {
         mode = MODE_CMD;
       }
     }
+  }
+
+  if(tag1.is_valid()) {
+    lightLED = millis() + 100;
+    Serial.print("TAG: ");
+    Serial.println(tag1.value(), HEX);
+    tag1.clear();
   }
 
   if( RFID_SERIAL.available() > 0 ) {
