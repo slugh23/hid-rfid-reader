@@ -4,6 +4,12 @@
 
 //build_flags = -D USB_SERIAL_HID
 
+unsigned long lightLED = 0;
+
+void lightLEDFor_ms( unsigned int ms ) {
+  lightLED = millis() + ms;
+}
+
 class Tag
 {
 public:
@@ -40,12 +46,20 @@ protected:
   uint64_t tag_;
 };
 
-unsigned long lightLED = 0;
-
 class TagParser
 {
 public:
   TagParser(Tag& tag) : save_(tag) {}
+
+  void begin(uint8_t gate, uint8_t rfid, void (*rfid_fcn)(void)) {
+    // Initialize interrupt;
+    pinMode(rfid, INPUT);
+    pinMode(gate, OUTPUT);
+
+    digitalWrite(gate, HIGH);
+    //t.begin(timerGate, 250000);
+    attachInterrupt( digitalPinToInterrupt(rfid), rfid_fcn, CHANGE );
+  }
 
   void change( unsigned int now )
   {
@@ -99,6 +113,70 @@ protected:
   Tag& save_;
 };
 
+class TagParser2
+{
+public:
+  TagParser2(Tag& tag) : save_(tag) {}
+
+  void begin(uint8_t gate, uint8_t rfid, void (*rfid_fcn)(void)) {
+    // Initialize interrupt;
+    pinMode(rfid, INPUT);
+    pinMode(gate, OUTPUT);
+
+    digitalWrite(gate, HIGH);
+    //t.begin(timerGate, 80000);
+    attachInterrupt( digitalPinToInterrupt(rfid), rfid_fcn, FALLING );
+  }
+
+  void change( unsigned int now )
+  {
+    unsigned int delta = now - lastChange_;
+    lastChange_ = now;
+
+    if( 50 < delta ) {
+      if( delta < 70 ) {
+        //  Short - 0
+        if( ++count0_ == 6 ) {
+          tag_.push(0);
+          count0_ = 0;
+        }
+        count1_ = 0;
+      }
+      if( delta < 100 ) {
+        //  Long - 1
+        if( (++count1_ % 5) == 0 ) {
+          tag_.push(1);
+        }
+        count0_ = 0;
+      }
+      else {
+        count0_ = 0;
+        count1_ = 0;
+      }
+    }
+    else {
+      count0_ = 0;
+      count1_ = 0;
+    }
+
+    if(count1_ == 15) {
+      tag_.clear();
+      lightLEDFor_ms(10);
+    }
+
+    if(tag_.is_valid()) {
+      save_ = tag_;
+    }
+  }
+
+protected:
+  unsigned int lastChange_;
+  int count0_;
+  int count1_;
+  Tag tag_;
+  Tag& save_;
+};
+
 #define RFID_SERIAL Serial2
 
 struct Passwd {
@@ -125,7 +203,7 @@ SimpleCircular<unsigned int, 12> times;
 
 Tag tag1;
 Tag tag2;
-TagParser parser(tag1);
+TagParser2 parser(tag1);
 
 unsigned long lastChange;
 unsigned long lastTag = 0;
@@ -292,18 +370,19 @@ void processCmd()
 }
 
 void setup() {
-  pinMode(rfidPin, INPUT);
+//  pinMode(rfidPin, INPUT);
   pinMode(ledPin, OUTPUT);
-  pinMode(gatePin, OUTPUT);
+  parser.begin(gatePin, rfidPin, pinChanged);
+//  pinMode(gatePin, OUTPUT);
 
-  digitalWrite(gatePin, HIGH);
-  //t.begin(timerGate, 250000);
+//  digitalWrite(gatePin, HIGH);
+  //t.begin(timerGate, 80000);
 
   Serial.begin( 115200 );
   RFID_SERIAL.begin( 9600 );
 
   lastChange = micros();
-  attachInterrupt( digitalPinToInterrupt(rfidPin), pinChanged, CHANGE );
+  //attachInterrupt( digitalPinToInterrupt(rfidPin), pinChanged, CHANGE );
 
   EEPROM.get(addrPass, svdPass);
   EEPROM.get(addrTag, tag);
