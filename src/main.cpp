@@ -18,11 +18,31 @@ public:
     count_ = 0;
     tag_ = 0;
   }
-  bool is_valid() {
+  bool is_valid( bool parity = false ) {
     // TODO: Add parity test
-    return count_ == 90;
+    if( count_ == 90 ) {
+      if( !parity ) {
+        return true;
+      }
+      int bits = 0;
+      uint32_t pty = (uint32_t)tag_ & 0x3FFFFFF;
+      int sum = pty & 0x1;
+      while( ++bits < 13 ) {
+        sum += (pty >>= 1) & 0x1;
+      }
+      if( (sum & 0x1) == 1 ) {
+        //lightLEDFor_ms(10);
+        while( ++bits < 27 ) {
+          sum += (pty >>= 1) & 0x1;
+        }
+        return (sum & 0x01) == 1;
+      }
+    }
+    return false;
   }
   bool push(bool bit) {
+    if( is_valid() )
+      return true;
     if( count_ & 0x01 )
     {
       if( bit == lastBit_ ) {
@@ -38,6 +58,13 @@ public:
 
   unsigned int value() {
     return (tag_ & 0x1FFFFFE) / 2;
+  }
+
+  String to_string() {
+    //int op = tag_ & 0x1;
+    String tag = "";
+      //String(tag_ >> 37, HEX);
+    return tag;
   }
 
 protected:
@@ -133,7 +160,7 @@ public:
     unsigned int delta = now - lastChange_;
     lastChange_ = now;
 
-    if( 50 < delta ) {
+    if( 50 < delta && delta < 90 ) {
       if( delta < 70 ) {
         //  Short - 0
         if( ++count0_ == 6 ) {
@@ -142,26 +169,22 @@ public:
         }
         count1_ = 0;
       }
-      if( delta < 100 ) {
+      else {
         //  Long - 1
         if( (++count1_ % 5) == 0 ) {
           tag_.push(1);
         }
         count0_ = 0;
       }
-      else {
-        count0_ = 0;
-        count1_ = 0;
-      }
     }
     else {
       count0_ = 0;
       count1_ = 0;
+      tag_.clear();
     }
 
     if(count1_ == 15) {
       tag_.clear();
-      lightLEDFor_ms(10);
     }
 
     if(tag_.is_valid()) {
@@ -469,7 +492,7 @@ void loop() {
     }
   }
 
-  if(tag1.is_valid()) {
+  if(tag1.is_valid( true )) {
     lightLED = millis() + 100;
     Serial.print("TAG: ");
     Serial.println(tag1.value(), HEX);
