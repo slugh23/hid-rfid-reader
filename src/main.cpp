@@ -1,8 +1,52 @@
 #include <Arduino.h>
 #include <EEPROM.h>
 #include "simple-circular.h"
+#include "tag-parser.h"
 
 //build_flags = -D USB_SERIAL_HID
+
+template< class S >
+class SerialProcessor
+{
+public:
+  SerialProcessor(const S& serial) : serial_(serial) {}
+
+  void process() {
+    if( serial_.available() ) {
+      process( serial_.read() );
+    }
+  }
+
+protected:
+  virtual void process( char newChar ) {}
+
+protected:
+  S& serial_;
+};
+
+template< class S >
+class CmdProcessor : public SerialProcessor< S >
+{
+public:
+  CmdProcessor(const S& serial) : SerialProcessor< S >(serial) {}
+
+protected:
+  virtual void process( char newChar )
+  {
+  }
+};
+
+template< class S >
+class RFIDProcessor : public SerialProcessor< S >
+{
+public:
+  RFIDProcessor(const S& serial) : SerialProcessor< S >(serial) {}
+
+protected:
+  virtual void process( char newChar )
+  {
+  }
+};
 
 unsigned long lightLED = 0;
 
@@ -10,195 +54,6 @@ void lightLEDFor_ms( unsigned int ms ) {
   lightLED = millis() + ms;
 }
 
-class Tag
-{
-public:
-  Tag() { clear(); }
-  void clear() {
-    count_ = 0;
-    tag_ = 0;
-  }
-  bool is_valid( bool parity = false ) {
-    // TODO: Add parity test
-    if( count_ == 90 ) {
-      if( !parity ) {
-        return true;
-      }
-      int bits = 0;
-      uint32_t pty = (uint32_t)tag_ & 0x3FFFFFF;
-      int sum = pty & 0x1;
-      while( ++bits < 13 ) {
-        sum += (pty >>= 1) & 0x1;
-      }
-      if( (sum & 0x1) == 1 ) {
-        //lightLEDFor_ms(10);
-        while( ++bits < 27 ) {
-          sum += (pty >>= 1) & 0x1;
-        }
-        return (sum & 0x01) == 1;
-      }
-    }
-    return false;
-  }
-  bool push(bool bit) {
-    if( is_valid() )
-      return true;
-    if( count_ & 0x01 )
-    {
-      if( bit == lastBit_ ) {
-        return false;
-      }
-      tag_ = (tag_ << 1) + lastBit_;
-    }
-    else {
-      lastBit_ = bit;
-    }
-    ++count_;
-  }
-
-  unsigned int value() {
-    return (tag_ & 0x1FFFFFE) / 2;
-  }
-
-  String to_string() {
-    //int op = tag_ & 0x1;
-    String tag = "";
-      //String(tag_ >> 37, HEX);
-    return tag;
-  }
-
-protected:
-  unsigned int count_;
-  bool lastBit_;
-  uint64_t tag_;
-};
-
-class TagParser
-{
-public:
-  TagParser(Tag& tag) : save_(tag) {}
-
-  void begin(uint8_t gate, uint8_t rfid, void (*rfid_fcn)(void)) {
-    // Initialize interrupt;
-    pinMode(rfid, INPUT);
-    pinMode(gate, OUTPUT);
-
-    digitalWrite(gate, HIGH);
-    //t.begin(timerGate, 250000);
-    attachInterrupt( digitalPinToInterrupt(rfid), rfid_fcn, CHANGE );
-  }
-
-  void change( unsigned int now )
-  {
-    unsigned int delta = now - lastChange_;
-    lastChange_ = now;
-
-    if( delta < 100 ) {
-      ++count_;
-    }
-    else
-    {
-      if( count_ < 15 ) {
-        // push 1
-        tag_.push(1);
-      }
-      else if( count_ < 25 ) {
-        // push 1 1
-        tag_.push(1);
-        tag_.push(1);
-      }
-
-      if( delta < 600 ) {
-        // push 0
-        tag_.push(0);
-      }
-      else if( delta < 1000 ) {
-        // push 0 0
-        tag_.push(0);
-        tag_.push(0);
-      }
-      else if( delta < 1300 ) {
-        //  clear tag
-        save_ = tag_;
-        tag_.clear();
-      }
-      else if( delta < 1750 ) {
-        //  clear tag
-        tag_.push(0);
-        save_ = tag_;
-        tag_.clear();
-      }
-      // ignore it...
-      count_ = 0;
-    }
-  }
-
-protected:
-  unsigned int lastChange_;
-  int count_;
-  Tag tag_;
-  Tag& save_;
-};
-
-class TagParser2
-{
-public:
-  TagParser2(Tag& tag) : save_(tag) {}
-
-  void begin(uint8_t gate, uint8_t rfid, void (*rfid_fcn)(void)) {
-    // Initialize interrupt;
-    pinMode(rfid, INPUT);
-    pinMode(gate, OUTPUT);
-
-    digitalWrite(gate, HIGH);
-    //t.begin(timerGate, 80000);
-    attachInterrupt( digitalPinToInterrupt(rfid), rfid_fcn, FALLING );
-  }
-
-  void change( unsigned int now )
-  {
-    unsigned int delta = now - lastChange_;
-    lastChange_ = now;
-
-    if( 50 < delta && delta < 90 ) {
-      if( delta < 70 ) {
-        //  Short - 0
-        if( ++count0_ == 6 ) {
-          tag_.push(0);
-          count0_ = 0;
-        }
-        count1_ = 0;
-      }
-      else {
-        //  Long - 1
-        if( (++count1_ % 5) == 0 ) {
-          tag_.push(1);
-        }
-        count0_ = 0;
-      }
-    }
-    else {
-      count0_ = 0;
-      count1_ = 0;
-      tag_.clear();
-    }
-
-    if(count1_ == 15) {
-      tag_.clear();
-    }
-
-    if(tag_.is_valid()) {
-      save_ = tag_;
-    }
-  }
-
-protected:
-  unsigned int lastChange_;
-  int count0_;
-  int count1_;
-  Tag tag_;
-  Tag& save_;
-};
 
 #define RFID_SERIAL Serial2
 
@@ -226,15 +81,15 @@ SimpleCircular<unsigned int, 12> times;
 
 Tag tag1;
 Tag tag2;
-TagParser2 parser(tag1);
+TagParser parser(tag1);
 
 unsigned long lastChange;
 unsigned long lastTag = 0;
 int readLen = 0;
 
 unsigned lastDelta = 0;
-unsigned int lastBreak = 0;
-int preamble = 15;
+//unsigned int lastBreak = 0;
+//int preamble = 15;
 
 const int TAGLEN = 12;
 byte tag[TAGLEN] = { 48, 66, 48, 48, 50, 54, 48, 53, 65, 49, 56, 57 };
@@ -392,20 +247,15 @@ void processCmd()
   }
 }
 
-void setup() {
-//  pinMode(rfidPin, INPUT);
+void setup()
+{
   pinMode(ledPin, OUTPUT);
   parser.begin(gatePin, rfidPin, pinChanged);
-//  pinMode(gatePin, OUTPUT);
-
-//  digitalWrite(gatePin, HIGH);
-  //t.begin(timerGate, 80000);
 
   Serial.begin( 115200 );
   RFID_SERIAL.begin( 9600 );
 
   lastChange = micros();
-  //attachInterrupt( digitalPinToInterrupt(rfidPin), pinChanged, CHANGE );
 
   EEPROM.get(addrPass, svdPass);
   EEPROM.get(addrTag, tag);
@@ -413,8 +263,8 @@ void setup() {
   lightLED = millis() + 1000;
 }
 
-void loop() {
-  // put your main code here, to run repeatedly:
+void loop()
+{
   if( millis() > lightLED ) {
     digitalWrite(ledPin, LOW);
   }
